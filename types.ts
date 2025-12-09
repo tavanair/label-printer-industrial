@@ -19,6 +19,7 @@ export interface LabelData {
   
   // Package Info
   weight: string;
+  packageSize: string; // New field for package size (1-9)
   price: string;
   paymentMethod: string; // e.g., "Tavafogh Shode" (Agreed)
   date: string;
@@ -60,6 +61,8 @@ declare global {
     serial: {
       requestPort: (options?: { filters?: any[] }) => Promise<any>;
       getPorts: () => Promise<any[]>;
+      addEventListener: (type: string, listener: (event: any) => any) => void;
+      removeEventListener: (type: string, listener: (event: any) => any) => void;
     };
   }
 }

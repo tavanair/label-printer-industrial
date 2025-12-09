@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import { LogEntry } from '../types';
 
@@ -29,16 +30,16 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, onClear }) => {
           <div className="text-slate-600 italic text-center mt-10">System ready. Waiting for events...</div>
         )}
         {logs.map((log) => (
-          <div key={log.id} className="flex gap-2 break-all">
-            <span className="text-slate-500 whitespace-nowrap">[{log.timestamp}]</span>
+          <div key={log.id} className="flex gap-2 items-start break-all">
+            <span className="text-slate-600 whitespace-nowrap text-[10px] mt-0.5">[{log.timestamp}]</span>
             <span className={`
               ${log.type === 'error' ? 'text-red-500 font-bold' : ''}
               ${log.type === 'warning' ? 'text-amber-400' : ''}
-              ${log.type === 'success' ? 'text-green-400' : ''}
-              ${log.type === 'data' ? 'text-cyan-400' : ''}
+              ${log.type === 'success' ? 'text-green-400 font-bold' : ''}
+              ${log.type === 'data' ? 'text-cyan-300 bg-slate-900/50 px-1 rounded border border-slate-800/50 block w-full' : ''}
               ${log.type === 'info' ? 'text-slate-300' : ''}
             `}>
-              {log.type === 'data' ? '>>> ' : ''}{log.message}
+              {log.message}
             </span>
           </div>
         ))}

@@ -10,47 +10,84 @@ import html2canvas from 'html2canvas';
 // Helper to generate unique ID
 const uuid = () => Math.random().toString(36).substring(2, 9);
 
-function App() {
-  // --- State ---
-  const [labelData, setLabelData] = useState<LabelData>({
-    trackingNumber: '04515000010732',
-    orderId: '200-40236801',
-    
-    senderName: 'شرکت بازاریابان ایرانیان زمین (BIZ)',
-    senderCity: 'تهران',
-    senderAddress: 'تهران، کد پستی: 1577646813 ، تلفن پشتیبانی: 43072-021',
-    
+// MOCK DATABASE
+const MOCK_DB: Record<string, Partial<LabelData>> = {
+  '04515000010732': {
     receiverName: 'پیمان معینی',
     receiverCity: 'استان زنجان - شهر خرمدره',
     receiverAddress: 'شهرک گلدشت، خیابان پروین اعتصامی، انتهای خیابان مروارید، نبش کوچه نگین 3، پلاک 1، واحد 1',
     receiverPostCode: '4571310004',
     receiverPhone: '02435520000',
     receiverMobile: '09100277226',
-    
-    weight: '205', // Grams
+    weight: '205',
     price: 'طبق توافق پرداخت شده',
-    paymentMethod: 'Prepaid',
+    orderId: '200-40236801',
     date: '1404-04-22',
     time: '13:30:05',
-    
-    barcode: '04515000010732',
-    qrData: 'https://tracking.post.ir/?id=04515000010732',
-    customNote: 'انبار مکانیزه Bizmlm.ir'
+    senderName: 'شرکت بازاریابان ایرانیان زمین (BIZ)',
+    senderAddress: 'تهران، کد پستی: 1577646813 ، تلفن پشتیبانی: 43072-021',
+  },
+  '11112222333344': {
+    receiverName: 'سارا رضایی',
+    receiverCity: 'تهران',
+    receiverAddress: 'میدان آزادی، خیابان آزادی، کوچه بانک، پلاک 5',
+    receiverPostCode: '1345678901',
+    receiverPhone: '02166000000',
+    receiverMobile: '09120000000',
+    weight: '500',
+    price: 'پرداخت در محل',
+    orderId: '200-99999999',
+    date: '1404-05-10',
+    time: '09:15:00',
+    senderName: 'فروشگاه مرکزی',
+    senderAddress: 'تهران، بازار بزرگ',
+  }
+};
+
+function App() {
+  // --- State ---
+  const [labelData, setLabelData] = useState<LabelData>({
+    trackingNumber: '',
+    orderId: '',
+    senderName: '',
+    senderCity: '',
+    senderAddress: '',
+    receiverName: '',
+    receiverCity: '',
+    receiverAddress: '',
+    receiverPostCode: '',
+    receiverPhone: '',
+    receiverMobile: '',
+    weight: '', 
+    packageSize: '', 
+    price: '',
+    paymentMethod: '',
+    date: '',
+    time: '',
+    barcode: '',
+    qrData: '',
+    customNote: ''
   });
   
-  const [labelSize, setLabelSize] = useState<LabelSize>(LabelSize.SIZE_100_80);
+  const [labelSize, setLabelSize] = useState<LabelSize>(LabelSize.SIZE_100_100);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [scaleDevice, setScaleDevice] = useState<SerialDevice>({ port: null, status: 'disconnected', baudRate: 9600 });
+  
+  // Serial Port Management
+  const [authorizedPorts, setAuthorizedPorts] = useState<any[]>([]);
+  const [selectedScalePortIdx, setSelectedScalePortIdx] = useState<number>(-1);
+  const [selectedPrinterPortIdx, setSelectedPrinterPortIdx] = useState<number>(-1);
+
+  // Set default baudRate to 19200 for scale
+  const [scaleDevice, setScaleDevice] = useState<SerialDevice>({ port: null, status: 'disconnected', baudRate: 19200 });
   const [printerDevice, setPrinterDevice] = useState<SerialDevice>({ port: null, status: 'disconnected', baudRate: 9600 });
   const [printerType, setPrinterType] = useState<PrinterType>(PrinterType.SYSTEM);
   const [scaleReader, setScaleReader] = useState<ReadableStreamDefaultReader<string> | null>(null);
 
-  // Store the promise that resolves when the pipeTo finishes
   const scaleReadableStreamClosedRef = useRef<Promise<void> | null>(null);
 
   // --- Logging Helper ---
   const addLog = (message: string, type: LogEntry['type'] = 'info') => {
-    setLogs(prev => [...prev.slice(-49), { 
+    setLogs(prev => [...prev.slice(-99), { 
       id: uuid(),
       timestamp: new Date().toLocaleTimeString(),
       message,
@@ -58,36 +95,78 @@ function App() {
     }]);
   };
 
-  // --- Startup Auto-Discovery ---
+  // --- Startup & Port Detection ---
   useEffect(() => {
-    const checkPorts = async () => {
+    const updatePorts = async () => {
       if (navigator.serial) {
         try {
           const ports = await navigator.serial.getPorts();
+          setAuthorizedPorts(ports);
+          addLog(`System: Found ${ports.length} authorized device(s).`, 'info');
+          
+          // Auto-select first port if available and nothing selected
           if (ports.length > 0) {
-             addLog(`System: Found ${ports.length} authorized serial port(s).`, 'info');
+            if (selectedScalePortIdx === -1) setSelectedScalePortIdx(0);
+            if (selectedPrinterPortIdx === -1) setSelectedPrinterPortIdx(0);
           }
         } catch (e) {
-          console.error("Serial access error", e);
+          console.error("Serial detection error", e);
         }
       } else {
-        addLog("Web Serial API not supported in this environment.", 'warning');
+        addLog("Web Serial API not supported.", 'warning');
       }
     };
-    checkPorts();
+
+    updatePorts();
+
+    // Listen for connect/disconnect events
+    if (navigator.serial) {
+      navigator.serial.addEventListener('connect', updatePorts);
+      navigator.serial.addEventListener('disconnect', updatePorts);
+    }
+    return () => {
+      if (navigator.serial) {
+        navigator.serial.removeEventListener('connect', updatePorts);
+        navigator.serial.removeEventListener('disconnect', updatePorts);
+      }
+    };
   }, []);
+
+  // --- Helper: Request New Port ---
+  const requestNewPort = async () => {
+    if (!navigator.serial) return;
+    try {
+      addLog("Scanning for new devices...", 'info');
+      await navigator.serial.requestPort();
+      // The 'connect' event listener will update the list automatically
+    } catch (e: any) {
+      if (e.name !== 'NotFoundError') { // Ignore cancellation
+        addLog(`Scan Error: ${e.message}`, 'error');
+      }
+    }
+  };
 
   // --- Scale Logic ---
   const connectScale = async () => {
-    if (!navigator.serial) {
-      addLog("Web Serial API not supported.", 'error');
+    if (!navigator.serial) return;
+
+    // Use selected port from dropdown or fall back to requestPort
+    let port = authorizedPorts[selectedScalePortIdx];
+    
+    if (!port) {
+      addLog("No port selected. Please select a port or scan for devices.", 'warning');
       return;
     }
+
     try {
-      addLog("Requesting Scale Port...", 'info');
-      const port = await navigator.serial.requestPort();
-      await port.open({ baudRate: scaleDevice.baudRate });
-      
+      // Check if port looks already open (basic check)
+      if (port.readable) {
+         addLog("Port appears to be open already. Reusing...", 'warning');
+      } else {
+         addLog(`Opening Scale Port (${scaleDevice.baudRate})...`, 'info');
+         await port.open({ baudRate: scaleDevice.baudRate });
+      }
+
       setScaleDevice(prev => ({ ...prev, port, status: 'connected' }));
       addLog("Scale Connected!", 'success');
       
@@ -101,6 +180,7 @@ function App() {
       readScaleData(reader);
     } catch (err: any) {
       addLog(`Scale Connection Failed: ${err.message}`, 'error');
+      console.error(err);
     }
   };
 
@@ -111,28 +191,29 @@ function App() {
     const processLine = (line: string) => {
       const cleanLine = line.trim();
       if (!cleanLine) return;
-      
-      addLog(`Line: "${cleanLine}"`, 'info');
-
-      // Robust regex for numbers
-      const candidates = cleanLine.match(/[-+]?\d*\.?\d+/g); 
-
-      if (candidates && candidates.length > 0) {
-        // Iterate BACKWARDS to find the most recent valid weight
-        for (let i = candidates.length - 1; i >= 0; i--) {
-          const candidate = candidates[i];
-          const val = parseFloat(candidate);
-          
-          if (!isNaN(val) && val > 0) {
-             setLabelData(prev => {
-                if (prev.weight !== val.toString()) {
-                    addLog(`Auto-fill Weight: ${val}`, 'success');
-                    return { ...prev, weight: val.toString() };
-                }
-                return prev;
-             });
-             break; 
-          }
+      addLog(`Parsing: [${cleanLine}]`, 'info');
+      const weightRegex = /([+-])?\s*(\d+(?:\.\d+)?)\s*(kg|g|lb|oz)?/gi;
+      const matches = [...cleanLine.matchAll(weightRegex)];
+      for (let i = matches.length - 1; i >= 0; i--) {
+        const match = matches[i];
+        const sign = match[1] || '+';
+        const numberStr = match[2];
+        const unit = match[3] ? match[3].toLowerCase() : '';
+        let val = parseFloat(numberStr);
+        if (sign === '-') val = -val;
+        if (!isNaN(val) && val > 0) { 
+           if (unit === 'kg') val = val * 1000;
+           else if (unit === 'lb') val = val * 453.592;
+           else if (unit === 'oz') val = val * 28.3495;
+           const weightInt = Math.round(val);
+           setLabelData(prev => {
+              if (prev.weight !== weightInt.toString()) {
+                  addLog(`>> WEIGHT UPDATE: ${weightInt}g`, 'success');
+                  return { ...prev, weight: weightInt.toString() };
+              }
+              return prev;
+           });
+           break; 
         }
       }
     };
@@ -143,38 +224,25 @@ function App() {
         if (done) break;
         if (value) {
           if (flushTimeout) clearTimeout(flushTimeout);
-
           const safeRaw = value.replace(/\r/g, '\\r').replace(/\n/g, '\\n');
-          addLog(`Raw: "${safeRaw}"`, 'data');
-
+          addLog(`RX: ${safeRaw}`, 'data');
           buffer += value;
-          
-          if (buffer.length > 1000) {
-             buffer = buffer.slice(-1000);
-          }
-          
-          const parts = buffer.split(/\r\n|\n|\r/);
-          const incompletePart = parts.pop() || "";
-          
-          for (const part of parts) {
-            processLine(part);
-          }
-
-          buffer = incompletePart;
-
-          // Time-based flush
+          if (buffer.length > 2000) buffer = buffer.slice(-2000);
+          let parts = buffer.split(/\r\n|\r|\n/);
+          buffer = parts.pop() || "";
+          for (const line of parts) processLine(line);
           flushTimeout = setTimeout(() => {
-             if (buffer.trim().length > 0) {
-                addLog(`Buffer Flush: "${buffer}"`, 'warning');
+             if (buffer.trim()) {
+                addLog(`Buffer Flush: "${buffer.replace(/\r/g, '\\r')}"`, 'warning');
                 processLine(buffer);
                 buffer = "";
              }
-          }, 150);
+          }, 100);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      addLog("Scale Read Error", 'error');
+      addLog(`Scale Error: ${err.message}`, 'error');
     } finally {
       if (flushTimeout) clearTimeout(flushTimeout);
       reader.releaseLock();
@@ -183,21 +251,13 @@ function App() {
 
   const disconnectScale = async () => {
     if (scaleReader) {
-      try {
-        await scaleReader.cancel();
-      } catch (e) {
-        console.warn("Error canceling reader", e);
-      }
+      try { await scaleReader.cancel(); } catch (e) { console.warn("Error canceling reader", e); }
       setScaleReader(null);
     }
-    
     if (scaleReadableStreamClosedRef.current) {
-      try {
-        await scaleReadableStreamClosedRef.current;
-      } catch (e) {}
+      try { await scaleReadableStreamClosedRef.current; } catch (e) {}
       scaleReadableStreamClosedRef.current = null;
     }
-
     if (scaleDevice.port) {
       try {
         await scaleDevice.port.close();
@@ -212,10 +272,20 @@ function App() {
   // --- Printer Logic ---
   const connectPrinter = async () => {
      if (!navigator.serial) return;
+     
+     let port = authorizedPorts[selectedPrinterPortIdx];
+     if (!port) {
+       addLog("No printer port selected.", 'warning');
+       return;
+     }
+
      try {
-       addLog("Requesting Printer Port...", 'info');
-       const port = await navigator.serial.requestPort();
-       await port.open({ baudRate: 9600 });
+       if (port.readable) {
+         addLog("Printer Port already open. Reusing...", 'warning');
+       } else {
+         addLog(`Opening Printer Port (9600)...`, 'info');
+         await port.open({ baudRate: 9600 });
+       }
        setPrinterDevice({ port, status: 'connected', baudRate: 9600 });
        addLog("TSPL Printer Connected", 'success');
      } catch (err: any) {
@@ -243,7 +313,6 @@ function App() {
         addLog("Serial Printer not connected!", 'error');
         return;
       }
-      
       try {
         const tspl = generateTSPL(labelData, labelSize);
         const encoder = new TextEncoder();
@@ -262,7 +331,6 @@ function App() {
     const element = document.getElementById('printable-label');
     if (!element) return;
     try {
-      addLog("Capturing preview...", 'info');
       const canvas = await html2canvas(element, { scale: 3 });
       const link = document.createElement('a');
       link.download = `Label_${labelData.trackingNumber}.png`;
@@ -274,101 +342,159 @@ function App() {
     }
   };
 
+  const handleSearch = (tracking: string) => {
+    addLog(`Searching: ${tracking}`, 'info');
+    const result = MOCK_DB[tracking.trim()];
+    if (result) {
+      setLabelData(prev => ({
+        ...prev,
+        ...result,
+        barcode: tracking,
+        qrData: `https://tracking.post.ir/?id=${tracking}`
+      }));
+      addLog("Data found!", 'success');
+    } else {
+      addLog("Not found in database.", 'warning');
+    }
+  };
+
+  const getSizeLabel = (size: LabelSize) => {
+    switch(size) {
+      case LabelSize.SIZE_100_80: return '100 x 80 mm';
+      case LabelSize.SIZE_100_100: return '100 x 100 mm';
+      case LabelSize.SIZE_80_100: return '80 x 100 mm';
+    }
+  }
+
+  // Helper to render port options
+  const renderPortOptions = () => {
+     if (authorizedPorts.length === 0) return <option value={-1}>No Ports Found</option>;
+     return authorizedPorts.map((port, idx) => {
+        const info = port.getInfo();
+        const label = `Port ${idx + 1} (USB:${info.usbVendorId || '?'}/${info.usbProductId || '?'})`;
+        return <option key={idx} value={idx}>{label}</option>;
+     });
+  }
+
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden bg-slate-950 text-slate-100 font-sans">
       
-      {/* 
-        HEADER
-        - Uses drag region for Electron titlebar feel 
-        - Gradient background
-        - Flexbox layout for responsiveness
-      */}
+      {/* HEADER */}
       <header 
         className="h-16 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 flex items-center justify-between px-6 shrink-0 shadow-md z-10"
         style={{ WebkitAppRegion: 'drag' } as any}
       >
         
-        {/* Left: Brand */}
-        <div className="flex items-center gap-3 w-1/4 select-none">
+        {/* Brand */}
+        <div className="flex items-center gap-3 w-1/5 select-none">
            <div className="w-9 h-9 bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg shadow flex items-center justify-center font-black text-slate-900 text-lg">A</div>
            <h1 className="font-bold text-xl tracking-tight text-slate-100">
              ARSH <span className="text-[#ff6f6a]">EXPRESS</span>
            </h1>
         </div>
         
-        {/* Center: Hardware Widgets */}
+        {/* Center Widgets */}
         <div 
-          className="flex-1 flex items-center justify-center gap-6"
+          className="flex-1 flex items-center justify-center gap-4"
           style={{ WebkitAppRegion: 'no-drag' } as any}
         >
-           {/* Scale Widget */}
-           <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700/50 backdrop-blur-sm transition-colors hover:bg-slate-800">
-             <div className="flex items-center gap-2">
-                <div className={`w-2.5 h-2.5 rounded-full shadow-sm ${scaleDevice.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                <span className="text-xs font-bold text-slate-400 tracking-wide">SCALE</span>
-             </div>
-             
-             <div className="h-4 w-[1px] bg-slate-700"></div>
+           {/* Scan Button (For Electron) */}
+           <button 
+              onClick={requestNewPort}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-400 p-1.5 rounded-lg border border-slate-700"
+              title="Scan/Authorize New Device"
+           >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+           </button>
 
+           {/* Scale Widget with Port Selection */}
+           <div className="flex items-center gap-2 bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-700/50 backdrop-blur-sm">
+             <div className={`w-2 h-2 rounded-full ${scaleDevice.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+             <span className="text-[10px] font-bold text-slate-400">SCALE</span>
+             
+             {/* Port Selector */}
              <select 
-               className="bg-transparent text-xs text-slate-300 font-mono outline-none cursor-pointer hover:text-white"
-               value={scaleDevice.baudRate}
-               onChange={(e) => setScaleDevice(prev => ({ ...prev, baudRate: parseInt(e.target.value) }))}
-               disabled={scaleDevice.status === 'connected'}
+                className="bg-slate-900 text-[10px] text-slate-300 rounded border border-slate-700 max-w-[100px]"
+                value={selectedScalePortIdx}
+                onChange={e => setSelectedScalePortIdx(Number(e.target.value))}
+                disabled={scaleDevice.status === 'connected'}
              >
-                {[1200, 2400, 4800, 9600, 19200, 38400, 115200].map(r => (
-                  <option key={r} value={r} className="bg-slate-800">{r}</option>
-                ))}
+                {renderPortOptions()}
+             </select>
+
+            {/* Baud Rate Selector - Default 19200 */}
+             <select
+                className="bg-slate-900 text-[10px] text-slate-300 rounded border border-slate-700 max-w-[60px]"
+                value={scaleDevice.baudRate}
+                onChange={e => setScaleDevice(prev => ({ ...prev, baudRate: Number(e.target.value) }))}
+                disabled={scaleDevice.status === 'connected'}
+             >
+               {[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map(r => (
+                 <option key={r} value={r}>{r}</option>
+               ))}
              </select>
 
              <button 
                 onClick={scaleDevice.status === 'connected' ? disconnectScale : connectScale}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
-                  scaleDevice.status === 'connected' 
-                    ? 'border-rose-500/30 text-rose-400 hover:bg-rose-950' 
-                    : 'border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-white'
-                }`}
+                className={`text-[9px] font-bold px-2 py-0.5 rounded border ${scaleDevice.status === 'connected' ? 'border-rose-500 text-rose-400' : 'border-slate-500 text-slate-400'}`}
              >
                {scaleDevice.status === 'connected' ? 'DISC' : 'CONN'}
              </button>
            </div>
 
-           {/* Printer Widget */}
-           <div className="flex items-center gap-3 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700/50 backdrop-blur-sm transition-colors hover:bg-slate-800">
-             <div className="flex items-center gap-2">
-                <div className={`w-2.5 h-2.5 rounded-full shadow-sm ${printerDevice.status === 'connected' ? 'bg-emerald-500' : 'bg-slate-600'}`} />
-                <span className="text-xs font-bold text-slate-400 tracking-wide">PRINTER</span>
-             </div>
-             
-             <div className="h-4 w-[1px] bg-slate-700"></div>
-
+           {/* Printer Widget with Port Selection */}
+           <div className="flex items-center gap-2 bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-700/50 backdrop-blur-sm">
+             <div className={`w-2 h-2 rounded-full ${printerDevice.status === 'connected' ? 'bg-emerald-500' : 'bg-slate-600'}`} />
              <select 
                value={printerType} 
                onChange={(e) => setPrinterType(e.target.value as PrinterType)}
-               className="bg-transparent text-xs text-slate-300 font-mono outline-none cursor-pointer hover:text-white"
+               className="bg-transparent text-[10px] font-bold text-slate-400 outline-none"
              >
-               <option value={PrinterType.SYSTEM} className="bg-slate-800">SYSTEM / USB</option>
-               <option value={PrinterType.SERIAL_TSPL} className="bg-slate-800">SERIAL TSPL</option>
+               <option value={PrinterType.SYSTEM} className="bg-slate-800">SYSTEM</option>
+               <option value={PrinterType.SERIAL_TSPL} className="bg-slate-800">SERIAL</option>
              </select>
              
              {printerType === PrinterType.SERIAL_TSPL && (
-                 <button 
-                  onClick={connectPrinter}
-                  disabled={printerDevice.status === 'connected'}
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
-                    printerDevice.status === 'connected'
-                      ? 'border-emerald-500/30 text-emerald-400 cursor-default'
-                      : 'border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-white'
-                  }`}
-                 >
-                   {printerDevice.status === 'connected' ? 'READY' : 'CONN'}
-                 </button>
+                 <>
+                   <select 
+                      className="bg-slate-900 text-[10px] text-slate-300 rounded border border-slate-700 max-w-[100px]"
+                      value={selectedPrinterPortIdx}
+                      onChange={e => setSelectedPrinterPortIdx(Number(e.target.value))}
+                      disabled={printerDevice.status === 'connected'}
+                   >
+                      {renderPortOptions()}
+                   </select>
+                   <button 
+                    onClick={connectPrinter}
+                    disabled={printerDevice.status === 'connected'}
+                    className={`text-[9px] font-bold px-2 py-0.5 rounded border ${printerDevice.status === 'connected' ? 'border-emerald-500 text-emerald-400' : 'border-slate-500 text-slate-400'}`}
+                   >
+                     {printerDevice.status === 'connected' ? 'RDY' : 'CONN'}
+                   </button>
+                 </>
              )}
+           </div>
+
+           {/* Data/Size Widget */}
+           <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1 ml-2">
+              <span className="text-[10px] font-bold text-slate-400">SIZE</span>
+              <select 
+                 value={labelSize}
+                 onChange={(e) => setLabelSize(e.target.value as LabelSize)}
+                 className="bg-transparent text-[10px] text-amber-500 font-bold font-mono outline-none"
+              >
+                  {[LabelSize.SIZE_100_100, LabelSize.SIZE_100_80, LabelSize.SIZE_80_100].map(size => (
+                     <option key={size} value={size} className="bg-slate-800 text-slate-200">
+                        {getSizeLabel(size)}
+                     </option>
+                  ))}
+              </select>
            </div>
         </div>
 
-        {/* Right: Spacer for balance */}
-        <div className="w-1/4"></div>
+        <div className="w-1/5"></div>
       </header>
 
       {/* Main Content Grid */}
@@ -376,39 +502,17 @@ function App() {
         
         {/* Left Side: Preview (55%) */}
         <section className="col-span-12 md:col-span-7 bg-slate-950 relative flex flex-col border-r border-slate-800/50">
-          
-          {/* Background Grid Pattern */}
-          <div className="absolute inset-0 opacity-5 pointer-events-none" 
-               style={{ backgroundImage: 'radial-gradient(#64748b 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-          </div>
-
+          <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#64748b 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
           <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto z-0">
              <div className="bg-white p-4 shadow-2xl shadow-black/50 rounded-sm">
                 <LabelPreview data={labelData} size={labelSize} />
              </div>
           </div>
-          
-          {/* Action Bar */}
           <div className="p-6 flex justify-center gap-4 bg-slate-900/80 backdrop-blur border-t border-slate-800 z-10">
-             <button 
-               onClick={printLabel}
-               disabled={!labelData.trackingNumber}
-               className="group relative bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 pl-6 pr-8 rounded-lg shadow-lg flex items-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 overflow-hidden"
-             >
-               <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-               </svg>
+             <button onClick={printLabel} disabled={!labelData.trackingNumber} className="group relative bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 pl-6 pr-8 rounded-lg shadow-lg flex items-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 overflow-hidden">
                <span className="tracking-wide">PRINT LABEL</span>
              </button>
-
-             <button 
-               onClick={exportAsImage}
-               className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 px-6 rounded-lg border border-slate-700 shadow flex items-center gap-2 transition-all"
-             >
-               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-               </svg>
+             <button onClick={exportAsImage} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 px-6 rounded-lg border border-slate-700 shadow flex items-center gap-2 transition-all">
                SAVE IMAGE
              </button>
           </div>
@@ -417,13 +521,7 @@ function App() {
         {/* Right Side: Form & Logs (45%) */}
         <section className="col-span-12 md:col-span-5 bg-slate-900 flex flex-col h-full overflow-hidden border-l border-slate-800 shadow-2xl z-10">
           <div className="flex-1 overflow-hidden relative">
-             <LabelForm 
-               data={labelData} 
-               onChange={setLabelData} 
-               onSizeChange={setLabelSize}
-               currentSize={labelSize}
-               onLog={addLog}
-             />
+             <LabelForm data={labelData} onChange={setLabelData} onSearch={handleSearch} onLog={addLog} />
           </div>
           <div className="h-40 shrink-0 border-t border-slate-800">
              <LogPanel logs={logs} onClear={() => setLogs([])} />
@@ -431,8 +529,6 @@ function App() {
         </section>
 
       </main>
-      
-      {/* Invisible Printable Area */}
       <div id="printable-area" className="hidden print:flex">
          <LabelPreview data={labelData} size={labelSize} />
       </div>

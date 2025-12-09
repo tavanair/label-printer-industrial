@@ -9,6 +9,12 @@ interface LabelPreviewProps {
   size: LabelSize;
 }
 
+// Helper: Convert English digits to Persian
+const toPersianDigits = (str: string | undefined | null): string => {
+  if (!str) return '';
+  return str.toString().replace(/\d/g, (d) => String.fromCharCode(d.charCodeAt(0) + 1728));
+};
+
 export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
   const barcodeRef = useRef<SVGSVGElement>(null);
   const qrRef = useRef<HTMLCanvasElement>(null);
@@ -21,17 +27,17 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
   if (is100x100) containerClass = 'w-[100mm] h-[100mm]';
   if (is100x80) containerClass = 'w-[100mm] h-[80mm]';
   
-  // Update Barcode (Code 128)
+  // Update Barcode (Code 128) - Keeps standard digits for scanner compatibility
   useEffect(() => {
     if (barcodeRef.current && data.barcode) {
       try {
         JsBarcode(barcodeRef.current, data.barcode, {
           format: "CODE128",
           lineColor: "#000",
-          width: 1.8, // Slightly wider for better readability
-          height: 40, // Taller to fill center
+          width: 1.8,
+          height: 40,
           displayValue: true,
-          fontSize: 14, // Bigger font
+          fontSize: 14,
           fontOptions: "bold",
           margin: 0,
           textMargin: 2
@@ -46,7 +52,7 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
   useEffect(() => {
     if (qrRef.current && data.qrData) {
       QRCode.toCanvas(qrRef.current, data.qrData, {
-        width: 55, // Smaller generation size
+        width: 55,
         margin: 0,
         errorCorrectionLevel: 'M',
       }, (error) => {
@@ -66,10 +72,10 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
       >
         
         {/* COLUMN A (Sidebar) - 1/4 Width */}
-        <div className="w-[26%] h-full flex flex-col border-l-2 border-black items-center py-2 shrink-0 justify-between bg-white">
+        <div className="w-[26%] h-full flex flex-col border-l-2 border-r-2 border-black items-center pt-2 shrink-0 justify-between bg-white overflow-hidden">
            
-           <div className="flex flex-col items-center w-full">
-               {/* QR Code (Moved Here) */}
+           <div className="flex flex-col items-center w-full shrink-0">
+               {/* QR Code */}
                <canvas ref={qrRef} className="w-[14mm] h-[14mm] mb-0.5" />
                <div className="text-[8px] font-bold leading-none text-center">رهگیری در سایت</div>
                <div className="text-[6px] font-mono leading-none text-center mt-0.5 mb-2">tracking.post.ir</div>
@@ -80,18 +86,32 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
                </div>
                
                {/* BIZ Link */}
-               <div className="text-[11px] font-bold font-mono">bizmlm.ir</div>
+               <div className="text-[11px] font-bold font-mono mb-2">bizmlm.ir</div>
            </div>
 
-           <div className="w-full px-2 flex flex-col justify-end text-center pb-1">
-              <div className="text-[10px] font-bold mb-0.5 text-center w-full">شناسه سفارش:</div>
-              <div className="border border-black p-1 font-mono text-[11px] font-bold break-all mb-1 text-center bg-slate-50">
-                 {data.orderId}
-              </div>
-              <div className="text-[9px] font-mono leading-tight text-slate-800 flex flex-col items-center gap-0.5 mt-1">
-                 <span>{data.date}</span>
-                 <span>{data.time}</span>
-              </div>
+           {/* Bottom Section: Order ID and Date/Time */}
+           <div className="w-full flex flex-col items-center justify-start flex-1 min-h-0 pt-2 pb-2">
+               
+               {/* Label: Order ID */}
+               <div className="text-[10px] font-bold text-center w-full mb-2">شناسه سفارش</div>
+               
+               {/* Order ID Value (Vertical, Persian) */}
+               <div 
+                  className="font-farsi text-[16px] font-bold whitespace-nowrap" 
+                  style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+               >
+                  {toPersianDigits(data.orderId)}
+               </div>
+
+               {/* Gap */}
+               <div style={{ height: '12px', minHeight: '12px' }}></div>
+
+               {/* Date & Time Value (Vertical, Persian) */}
+               <div className="flex gap-1 items-center justify-center">
+                   <div className="font-farsi text-[10px] font-bold" style={{ writingMode: 'vertical-rl' }}>{toPersianDigits(data.date)}</div>
+                   <div className="font-farsi text-[10px] font-bold" style={{ writingMode: 'vertical-rl' }}>{toPersianDigits(data.time)}</div>
+               </div>
+
            </div>
         </div>
 
@@ -99,21 +119,21 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
         <div className="w-[74%] h-full flex flex-col">
            
            {/* SECTION 1: Header (Row 1) */}
-           {/* DOM Order: Logo (Right), Barcode (Left/Center) in RTL */}
            <div className="flex h-[24mm] border-b-2 border-black shrink-0 items-center justify-between">
               
-              {/* 1. Logos (Rightmost) */}
+              {/* 1. Logo (Rightmost) */}
               <div className="w-[18mm] h-full flex flex-col items-center justify-center p-1 border-l-2 border-black">
-                 <div className="flex flex-col items-center">
-                     <svg className="w-8 h-8 text-black" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M2 12l10-10 10 10-2 2-8-8-8 8-2-2z" />
-                     </svg>
-                     <span className="text-[7px] font-bold mt-1 text-center leading-tight">شرکت ملی پست</span>
-                 </div>
+                 <svg viewBox="0 0 100 100" className="w-full h-full">
+                    <path d="M20 40 L45 65 L80 20 L65 15 L45 50 L30 35 Z" fill="#FFC107" />
+                    <path d="M45 65 L80 20 L85 25 L45 75 L15 45 L20 40 Z" fill="#FFC107" />
+                    <path d="M20 80 H80 V88 H20 Z" fill="#1e3a8a" />
+                    <path d="M30 90 H70 V94 H30 Z" fill="#1e3a8a" />
+                 </svg>
               </div>
 
-              {/* 2. Barcode (Expanded to fill left space) */}
+              {/* 2. Barcode */}
               <div className="flex-1 h-full flex flex-col items-center justify-center p-1 overflow-hidden">
+                 <div className="text-[9px] font-bold mb-0.5">برچسب کد رهگیری و اعتبارسنجی 3PDL</div>
                  <div className="flex items-center justify-center w-full h-full transform scale-95 origin-center">
                     <svg ref={barcodeRef} className="max-w-full max-h-full"></svg>
                  </div>
@@ -122,14 +142,14 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
            </div>
 
            {/* SECTION 2: Sender */}
-           <div className="h-[13mm] border-b-2 border-black p-1.5 px-3 flex flex-col justify-center shrink-0 bg-slate-50/50">
+           <div className="h-[15mm] border-b-2 border-black p-1.5 px-3 flex flex-col justify-center shrink-0 bg-slate-50/50">
                <div className="text-[11px] truncate">
                   <span className="font-bold">فرستنده: </span>
                   <span>{data.senderName}</span>
                </div>
                <div className="text-[10px] mt-1 leading-tight line-clamp-2">
                   <span className="font-bold">آدرس: </span>
-                  <span>{data.senderAddress}</span>
+                  <span>{toPersianDigits(data.senderAddress)}</span>
                </div>
            </div>
 
@@ -140,7 +160,7 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
                   <span className="font-bold">{data.receiverCity}</span>
                </div>
                <div className="text-[11px] leading-snug">
-                  {data.receiverAddress}
+                  {toPersianDigits(data.receiverAddress)}
                </div>
            </div>
 
@@ -150,16 +170,16 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
                {/* Col A */}
                <div className="border-l-2 border-black p-1 px-2 flex flex-col justify-between">
                   <div className="flex justify-between items-center border-b border-black pb-0.5 h-1/3">
-                     <span className="font-bold">{data.receiverName}</span>
+                     <span className="font-bold truncate">{data.receiverName}</span>
                   </div>
                   <div className="flex justify-between items-center border-b border-black py-0.5 h-1/3">
-                     <span>تلفن:</span>
-                     <span className="font-mono font-bold">{data.receiverPhone}</span>
+                     <span className="text-[10px]">تلفن</span>
+                     <span className="font-farsi font-bold">{toPersianDigits(data.receiverPhone)}</span>
                   </div>
                   <div className="flex justify-between items-center pt-0.5 font-bold h-1/3">
-                     <span>وزن:</span>
+                     <span className="text-[10px]">وزن</span>
                      <div className="flex items-baseline gap-1">
-                        <span className="font-mono text-lg">{data.weight}</span>
+                        <span className="font-farsi text-lg">{toPersianDigits(data.weight)}</span>
                         <span className="text-[9px]">گرم</span>
                      </div>
                   </div>
@@ -168,12 +188,12 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
                {/* Col B */}
                <div className="p-1 px-2 flex flex-col justify-between">
                    <div className="flex justify-between items-center border-b border-black pb-0.5 h-1/3">
-                     <span className="font-mono font-bold tracking-wider">{data.receiverPostCode}</span>
-                     <span className="text-[9px]">کدپستی</span>
+                     <span className="text-[10px]">کدپستی</span>
+                     <span className="font-farsi font-bold tracking-wider">{toPersianDigits(data.receiverPostCode)}</span>
                   </div>
                   <div className="flex justify-between items-center border-b border-black py-0.5 h-1/3">
-                     <span>موبایل:</span>
-                     <span className="font-mono font-bold">{data.receiverMobile}</span>
+                     <span className="text-[10px]">موبایل</span>
+                     <span className="font-farsi font-bold">{toPersianDigits(data.receiverMobile)}</span>
                   </div>
                   <div className="text-[9px] text-center pt-1 font-bold h-1/3 flex items-center justify-center">
                      طبق توافق پرداخت شده
@@ -185,8 +205,15 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
 
       </div>
       
-      <div className="mt-3 text-slate-500 text-xs font-mono">
-         {containerClass.match(/w-\[(.*?)\]/)?.[1]} x {containerClass.match(/h-\[(.*?)\]/)?.[1]}
+      {/* Footer Text with Dimensions and Package Size */}
+      <div className="mt-3 text-slate-500 text-xs font-mono flex gap-2">
+         <span>{containerClass.match(/w-\[(.*?)\]/)?.[1]} x {containerClass.match(/h-\[(.*?)\]/)?.[1]}</span>
+         {data.packageSize && (
+            <>
+                <span>-</span>
+                <span className="text-amber-500 font-bold font-farsi">{toPersianDigits(data.packageSize)}</span>
+            </>
+         )}
       </div>
     </div>
   );
