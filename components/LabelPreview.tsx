@@ -55,7 +55,7 @@ export const LabelPreview: React.FC<LabelPreviewProps> = ({ data, size }) => {
         width: 55,
         margin: 0,
         errorCorrectionLevel: 'M',
-      }, (error) => {
+      }, (error: any) => {
         if (error) console.warn("QR generation failed", error);
       });
     }
