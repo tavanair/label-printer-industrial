@@ -55,14 +55,3 @@ export enum LabelSize {
   SIZE_100_80 = '100x80', // Wide short thermal (New Standard)
 }
 
-// Global declaration for Web Serial API
-declare global {
-  interface Navigator {
-    serial: {
-      requestPort: (options?: { filters?: any[] }) => Promise<any>;
-      getPorts: () => Promise<any[]>;
-      addEventListener: (type: string, listener: (event: any) => any) => void;
-      removeEventListener: (type: string, listener: (event: any) => any) => void;
-    };
-  }
-}

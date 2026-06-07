@@ -17,7 +17,7 @@ export const translateToPersian = async (text: string): Promise<string> => {
       model: 'gemini-2.5-flash',
       contents: `Translate the following product name or description to Persian (Farsi). Return ONLY the translated text, no explanation. Text: "${text}"`,
     });
-    return response.text.trim();
+    return response.text?.trim() ?? "";
   } catch (error) {
     console.error("Gemini Translation Error:", error);
     throw error;
@@ -33,7 +33,7 @@ export const generateProductDescription = async (productName: string): Promise<s
       model: 'gemini-2.5-flash',
       contents: `Write a short, industrial-style product description (max 15 words) for a product named "${productName}". Return ONLY the description.`,
     });
-    return response.text.trim();
+    return response.text?.trim() ?? "";
   } catch (error) {
     console.error("Gemini Generation Error:", error);
     throw error;
