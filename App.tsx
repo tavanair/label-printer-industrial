@@ -2,13 +2,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LabelForm } from './components/LabelForm';
 import { LabelPreview } from './components/LabelPreview';
+import { LabelDesignerPanel } from './components/LabelDesignerPanel';
 import { LogPanel } from './components/LogPanel';
-import { LabelData, LabelSize, LogEntry, SerialDevice, PrinterType } from './types';
+import { LabelData, LabelElement, LabelElementKind, LabelLayout, LabelSize, LogEntry, SerialDevice, PrinterType } from './types';
 import { generateTSPL } from './utils/tspl';
+import { cloneDefaultLayout } from './utils/labelLayout';
 import html2canvas from 'html2canvas';
 
 // Helper to generate unique ID
 const uuid = () => Math.random().toString(36).substring(2, 9);
+const LAYOUT_STORAGE_KEY = 'industrial-label-layout-v1';
 
 // MOCK DATABASE
 const MOCK_DB: Record<string, Partial<LabelData>> = {
@@ -70,6 +73,17 @@ function App() {
   });
   
   const [labelSize, setLabelSize] = useState<LabelSize>(LabelSize.SIZE_100_100);
+  const [labelLayout, setLabelLayout] = useState<LabelLayout>(() => {
+    try {
+      const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : cloneDefaultLayout();
+    } catch {
+      return cloneDefaultLayout();
+    }
+  });
+  const [designerMode, setDesignerMode] = useState(false);
+  const [selectedElementId, setSelectedElementId] = useState<string | null>('barcode');
+  const [showDesignerGrid, setShowDesignerGrid] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   
   // Serial Port Management
@@ -93,6 +107,64 @@ function App() {
       message,
       type
     }]);
+  };
+
+  useEffect(() => {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(labelLayout));
+  }, [labelLayout]);
+
+  const updateLayoutElement = (id: string, updates: Partial<LabelElement>) => {
+    setLabelLayout(prev => ({
+      ...prev,
+      elements: prev.elements.map(element => (
+        element.id === id ? { ...element, ...updates } : element
+      )),
+    }));
+  };
+
+  const updateLabelLayout = (updates: Partial<LabelLayout>) => {
+    setLabelLayout(prev => ({ ...prev, ...updates }));
+  };
+
+  const addLabelElement = (kind: LabelElementKind) => {
+    const id = `${kind}-${uuid()}`;
+    const baseElement: LabelElement = {
+      id,
+      label: `New ${kind}`,
+      kind,
+      x: 38,
+      y: 38,
+      w: kind === 'line' ? 24 : kind === 'qr' || kind === 'image' || kind === 'logo' ? 16 : 28,
+      h: kind === 'line' ? 0 : kind === 'barcode' ? 12 : kind === 'text' ? 8 : 16,
+      fontSize: 11,
+      visible: true,
+      align: 'center',
+      direction: 'rtl',
+      rotation: 0,
+      staticText: kind === 'text' ? 'متن جدید' : undefined,
+      field: kind === 'barcode' ? 'barcode' : kind === 'qr' ? 'qrData' : undefined,
+      border: kind === 'box' || kind === 'line',
+      background: kind === 'box' ? '#ffffff' : undefined,
+    };
+
+    setLabelLayout(prev => ({ ...prev, elements: [...prev.elements, baseElement] }));
+    setSelectedElementId(id);
+    addLog(`Added ${kind} element to label designer.`, 'success');
+  };
+
+  const deleteLabelElement = (id: string) => {
+    setLabelLayout(prev => {
+      const elements = prev.elements.filter(element => element.id !== id);
+      setSelectedElementId(elements[0]?.id || null);
+      return { ...prev, elements };
+    });
+    addLog('Removed label designer element.', 'warning');
+  };
+
+  const resetLabelLayout = () => {
+    setLabelLayout(cloneDefaultLayout());
+    setSelectedElementId('barcode');
+    addLog('Label designer reset to default layout.', 'warning');
   };
 
   // --- Startup & Port Detection ---
@@ -309,6 +381,9 @@ function App() {
       window.print();
       addLog("Sent to System Spooler", 'success');
     } else {
+      if (designerMode) {
+        addLog("Serial TSPL print uses the fixed printer command layout. Designer layout applies to system print and image export.", 'warning');
+      }
       if (!printerDevice.port || printerDevice.status !== 'connected') {
         addLog("Serial Printer not connected!", 'error');
         return;
@@ -492,6 +567,16 @@ function App() {
                   ))}
               </select>
            </div>
+
+           <button
+              onClick={() => {
+                setDesignerMode(prev => !prev);
+                addLog(`Designer mode ${designerMode ? 'disabled' : 'enabled'}.`, 'info');
+              }}
+              className={`text-[10px] font-bold px-3 py-2 rounded-lg border ${designerMode ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'}`}
+           >
+             DESIGN
+           </button>
         </div>
 
         <div className="w-1/5"></div>
@@ -501,11 +586,20 @@ function App() {
       <main className="flex-1 grid grid-cols-12 gap-0 overflow-hidden relative">
         
         {/* Left Side: Preview (55%) */}
-        <section className="col-span-12 md:col-span-7 bg-slate-950 relative flex flex-col border-r border-slate-800/50">
+        <section className={`${designerMode ? 'col-span-12 md:col-span-5' : 'col-span-12 md:col-span-7'} bg-slate-950 relative flex flex-col border-r border-slate-800/50`}>
           <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#64748b 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
           <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto z-0">
              <div className="bg-white p-4 shadow-2xl shadow-black/50 rounded-sm">
-                <LabelPreview data={labelData} size={labelSize} />
+                <LabelPreview
+                  data={labelData}
+                  size={labelSize}
+                  layout={labelLayout}
+                  designerMode={designerMode}
+                  selectedElementId={selectedElementId}
+                  showGrid={showDesignerGrid}
+                  onSelectElement={setSelectedElementId}
+                  onUpdateElement={updateLayoutElement}
+                />
              </div>
           </div>
           <div className="p-6 flex justify-center gap-4 bg-slate-900/80 backdrop-blur border-t border-slate-800 z-10">
@@ -518,8 +612,25 @@ function App() {
           </div>
         </section>
 
+        {designerMode && (
+          <section className="hidden md:block md:col-span-3 bg-slate-900 h-full overflow-hidden z-10">
+            <LabelDesignerPanel
+              layout={labelLayout}
+              selectedElementId={selectedElementId}
+              showGrid={showDesignerGrid}
+              onSelectElement={setSelectedElementId}
+              onAddElement={addLabelElement}
+              onDeleteElement={deleteLabelElement}
+              onUpdateElement={updateLayoutElement}
+              onUpdateLayout={updateLabelLayout}
+              onToggleGrid={() => setShowDesignerGrid(prev => !prev)}
+              onReset={resetLabelLayout}
+            />
+          </section>
+        )}
+
         {/* Right Side: Form & Logs (45%) */}
-        <section className="col-span-12 md:col-span-5 bg-slate-900 flex flex-col h-full overflow-hidden border-l border-slate-800 shadow-2xl z-10">
+        <section className={`col-span-12 ${designerMode ? 'md:col-span-4' : 'md:col-span-5'} bg-slate-900 flex flex-col h-full overflow-hidden border-l border-slate-800 shadow-2xl z-10`}>
           <div className="flex-1 overflow-hidden relative">
              <LabelForm data={labelData} onChange={setLabelData} onSearch={handleSearch} onLog={addLog} />
           </div>
@@ -530,7 +641,7 @@ function App() {
 
       </main>
       <div id="printable-area" className="hidden print:flex">
-         <LabelPreview data={labelData} size={labelSize} />
+         <LabelPreview data={labelData} size={labelSize} layout={labelLayout} />
       </div>
     </div>
   );

@@ -55,3 +55,42 @@ export enum LabelSize {
   SIZE_100_80 = '100x80', // Wide short thermal (New Standard)
 }
 
+export type LabelElementKind =
+  | 'text'
+  | 'barcode'
+  | 'qr'
+  | 'image'
+  | 'logo'
+  | 'box'
+  | 'line';
+
+export interface LabelElement {
+  id: string;
+  label: string;
+  kind: LabelElementKind;
+  field?: keyof LabelData;
+  staticText?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fontSize: number;
+  bold?: boolean;
+  visible: boolean;
+  align?: 'left' | 'center' | 'right';
+  direction?: 'ltr' | 'rtl';
+  vertical?: boolean;
+  background?: string;
+  color?: string;
+  border?: boolean;
+  prefix?: string;
+  suffix?: string;
+  rotation?: 0 | 90 | 180 | 270;
+}
+
+export interface LabelLayout {
+  elements: LabelElement[];
+  showBorder: boolean;
+  gridSize: number;
+}
+
